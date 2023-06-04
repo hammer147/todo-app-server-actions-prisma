@@ -1,34 +1,188 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Todo app with Server Actions, Prisma and MongoDB
 
-## Getting Started
+## Prisma
 
-First, run the development server:
+### Installation
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
+npm i prisma -D
+npx prisma
+npm i @prisma/client
+npx prisma init
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- add .env to .gitignore
+- change DATABASE_URL in .env
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+```bash
+MONGODB_URI="mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/<dbname>?retryWrites=true&w=majority"
+```
 
-## Learn More
+### Schema
 
-To learn more about Next.js, take a look at the following resources:
+In /prisma/schema.prisma, change the provider to mongodb
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+If you have an existing database, you can run `npx prisma pull` to generate the schema from the database.
+We just added a Todo model to the schema manually.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+```prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-## Deploy on Vercel
+generator client {
+  provider = "prisma-client-js"
+}
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+model Todo {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+### Generate Prisma Client
+
+```bash
+npx prisma generate
+```
+
+### Export Prisma Client
+
+Create /lib/prisma.ts
+
+```ts
+import { PrismaClient } from '@prisma/client'
+
+declare global {
+  var prisma: PrismaClient | undefined
+}
+
+const prisma = global.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV === 'development') global.prisma = prisma
+
+export default prisma
+```
+
+### Add some records
+
+A quick way to add some records is to use the Prisma Studio
+
+```bash
+npx prisma studio
+```
+
+This can also be done with a script, see [seeding your database](https://www.prisma.io/docs/guides/migrate/seed-database#how-to-seed-your-database-in-prisma)
+
+### Define CRUD operations
+
+Create /lib/todos.ts
+
+```ts
+import prisma from './prisma'
+
+export async function getTodos() {
+  try {
+    const todos = await prisma.todo.findMany()
+    return { todos }
+  } catch (error) {
+    return { error }
+  }
+}
+
+export async function createTodo(title: string) {
+  try {
+    const todo = await prisma.todo.create({ data: { title } })
+    return { todo }
+  } catch (error) {
+    return { error }
+  }
+}
+
+export async function getTodoById(id: string) {
+  try {
+    const todo = await prisma.todo.findUnique({ where: { id } })
+    return { todo }
+  } catch (error) {
+    return { error }
+  }
+}
+
+export async function updateTodo(id: string, isCompleted: boolean) {
+  try {
+    const todo = await prisma.todo.update({
+      where: { id },
+      data: { isCompleted }
+    })
+    return { todo }
+  } catch (error) {
+    return { error }
+  }
+}
+```
+
+## Server Actions
+
+Create /app/_actions.ts
+
+```ts
+'use server'
+
+import { createTodo, updateTodo } from '@/lib/todos'
+import { revalidatePath } from 'next/cache'
+
+export async function createTodoAction(title: string) {
+  await createTodo(title)
+  revalidatePath('/')
+}
+
+export async function updateTodoAction(id: string, isCompleted: boolean) {
+  await updateTodo(id, isCompleted)
+  revalidatePath('/')
+}
+```
+
+Call the actions from the components
+
+```ts
+// app/components/NewTodoForm.tsx
+
+'use client'
+
+import { useRef } from 'react'
+import { createTodoAction } from '../_actions'
+
+export default function NewTodoForm() {
+  const formRef = useRef<HTMLFormElement>(null)
+
+  async function action(data: FormData) {
+    const title = data.get('title')
+    if (!title || typeof title !== 'string') return
+    // call server action
+    await createTodoAction(title)
+    // reset form
+    formRef.current?.reset()
+  }
+
+  return (
+    <form ref={formRef} action={action}>
+      <h2 className='mb-2 font-medium'>Create a new Todo</h2>
+      <input type='text' name='title' className='rounded border border-slate-400 px-2 py-0.5' />
+      <button
+        type='submit'
+        className='ml-2 rounded bg-slate-700 px-2 py-1 text-sm text-white disabled:bg-opacity-50'>
+        Add Todo
+      </button>
+    </form>
+  )
+}
+```
