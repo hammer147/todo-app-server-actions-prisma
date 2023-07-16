@@ -17,7 +17,7 @@ npx prisma init
 - change DATABASE_URL in .env
 
 ```bash
-MONGODB_URI="mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/<dbname>?retryWrites=true&w=majority"
+DATABASE_URL="mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/<dbname>?retryWrites=true&w=majority"
 ```
 
 ### Schema
